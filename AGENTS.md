@@ -1,226 +1,153 @@
-# Developer & Agent Guide for CodeEditor
+# AGENTS.md
 
-Welcome to the `CodeEditor` project. This guide is tailored for AI agents and human developers working on this repository. It documents the build system, testing commands, directory structure, architecture, and coding conventions.
-
----
+This file provides instructions and configuration details for autonomous coding agents modifying this repository. Follow these guidelines to ensure accurate and consistent modifications.
 
 ## 1. Project Overview & Architecture
 
-`CodeEditor` is a modern Android text and code editor written in Kotlin using **Jetpack Compose** and **Material 3**.
+**CodeEditor** is a modern, fast, and privacy-focused text and code editor for Android.
 
-### Key Features
-- **Multi-language Syntax Highlighting**: C/C++, Python, Rust, Java, Kotlin, JavaScript, TypeScript, HTML, JSON, Markdown, and SQL.
-- **Multi-Tab Editor**: Open multiple files simultaneously, manage tabs, and track modification state.
-- **Search & Replace**: Regex support, whole-word matching, case sensitivity toggle, incremental match navigation, and replace / replace-all.
-- **Character Encodings**: Auto-detection (UTF-8 BOM, UTF-16 LE/BE), multi-charset decoding/reloading/saving (UTF-8, ISO-8859-1, GBK, Shift_JIS, Big5, etc.).
-- **Multiple Color Themes**: One Dark, Dracula, Monokai Pro, Nord, Solarized Dark, Solarized Light, and GitHub Light.
-- **Storage Access Framework (SAF)**: Modern Android scoped storage file picker (`OpenMultipleDocuments`, `CreateDocument`) without broad storage permissions.
-- **Quick Accessory Bar & Customization**: Quick symbol bar for fast coding symbols, undo/redo stack, font sizing, and word wrap.
-
-### Module Structure
-- The project currently consists of a single `:app` module.
-- If future feature modules are introduced (e.g., `:core:*`, `:feature:*`), feature modules must not depend on other feature modules.
-
-### Architectural Pattern
-- **Pattern**: MVVM with Unidirectional Data Flow (UDF) powered by `StateFlow`.
-- **Model**: Immutable data structures (`EditorTab`, `EditorTheme`, `SearchState`, `ProgrammingLanguage`).
-- **ViewModel**: `EditorViewModel` manages all application state in a single `MutableStateFlow<EditorUiState>`, exposing a public read-only `StateFlow<EditorUiState>`.
-- **View**: Declarative composables (`MainScreen`, `CodeEditorView`, `TabBar`, etc.) consume `EditorUiState` and emit user actions via callbacks to the ViewModel.
-- **State Updates**: State modifications use `_uiState.update { state -> state.copy(...) }` to ensure thread-safe atomic updates.
-- **Decoupled Core Logic**: Logic in `syntax/`, `search/`, and `data/` (`EncodingHelper`, `SearchState`, `SyntaxHighlighter`) is intentionally decoupled from Android Android/Context APIs. This allows core algorithmic logic to be thoroughly tested using pure host-side JVM unit tests (`EditorLogicTest.kt`) without requiring an emulator.
-- **Non-destructive Syntax Highlighting**: Code syntax coloring and search match highlighting are applied using Compose's `VisualTransformation` (`CodeVisualTransformation`) producing `AnnotatedString` with `SpanStyle`. The underlying text buffer remains plain text, avoiding text mutation bugs or synchronization overhead.
+*   **Module Structure:** The project is currently a monolithic app with a single `:app` module.
+*   **Module Dependency Rules:** If new feature modules are added in the future, feature modules must not depend on other feature modules. All features should depend on core modules.
+*   **Architecture Pattern:** The application follows the **MVVM (Model-View-ViewModel)** architectural pattern combined with **Unidirectional Data Flow (UDF)** managed via `StateFlow` and `SharedFlow`.
+*   **Decoupled Core:** Core logic (syntax highlighting, search/replace, encoding engines) is strictly decoupled from Android framework dependencies to enable fast host JVM testing.
 
 ### Directory Structure
 ```
-CodeEditor/
-├── AGENTS.md                      # Agent and developer reference guide (this file)
-├── build.gradle.kts               # Top-level build configuration
-├── settings.gradle.kts            # Project settings, repositories, and plugins
-├── gradle.properties              # JVM daemon memory configuration & Kotlin code style
-├── local.properties               # Local Android SDK path (sdk.dir)
-├── gradlew / gradlew.bat          # Gradle wrapper executable scripts
-├── gradle/
-│   ├── libs.versions.toml         # Gradle Version Catalog (dependencies & versions)
-│   ├── gradle-daemon-jvm.properties
-│   └── wrapper/
-│       ├── gradle-wrapper.jar
-│       └── gradle-wrapper.properties # Gradle 9.3.1 distribution URL & checksum
-└── app/
-    ├── build.gradle.kts           # App module build configuration, SDK targets, dependencies
-    ├── proguard-rules.pro         # Proguard/R8 optimization and obfuscation rules
-    └── src/
-        ├── main/
-        │   ├── AndroidManifest.xml # Application manifest, activity declarations, app theme
-        │   ├── java/app/kiddos/codeeditor/
-        │   │   ├── MainActivity.kt # Main entry Activity with edge-to-edge Compose host
-        │   │   ├── data/           # Domain models, enums, and data helpers
-        │   │   │   ├── EditorTab.kt           # Immutable tab state (URI, text, language, undo/redo)
-        │   │   │   ├── EditorTheme.kt         # Theme definitions and color palettes
-        │   │   │   ├── EncodingHelper.kt      # Charset detection, UTF-8 BOM, encoding conversions
-        │   │   │   ├── ProgrammingLanguage.kt  # Supported languages, badge labels, and file extensions
-        │   │   │   └── SampleCodes.kt         # Pre-loaded starter code templates
-        │   │   ├── search/         # Text search and replace engine
-        │   │   │   └── SearchState.kt         # Search query state, regex matching, match navigation, replace
-        │   │   ├── syntax/         # Syntax highlighting engine
-        │   │   │   ├── LanguageRules.kt       # Keywords and built-in type sets for supported languages
-        │   │   │   └── SyntaxHighlighter.kt   # Regex token scanner & Compose CodeVisualTransformation
-        │   │   └── ui/             # Jetpack Compose UI layer
-        │   │       ├── EditorViewModel.kt     # Main ViewModel: tabs, undo/redo, file I/O, search state
-        │   │       ├── MainScreen.kt          # Root Compose scaffold, top bar, SAF launchers, dialog triggers
-        │   │       ├── components/            # Reusable UI components
-        │   │       │   ├── CodeEditorView.kt  # Editor viewport with line number gutter & visual transformation
-        │   │       │   ├── Dialogs.kt         # Theme, encoding, language, and new file dialogs
-        │   │       │   ├── QuickSymbolBar.kt  # Quick character insertion row for programming symbols
-        │   │       │   ├── SearchBar.kt       # Floating search and replace bar with match controls
-        │   │       │   ├── StatusBar.kt       # Bottom status bar: line/col, length, encoding, language, theme
-        │   │       │   └── TabBar.kt          # Multi-tab strip with selection, close, and add actions
-        │   │       └── theme/                 # App-wide Material 3 theme styling
-        │   │           ├── Color.kt           # Baseline palette tokens
-        │   │           ├── Theme.kt           # Dynamic / dark / light MaterialTheme configuration
-        │   │           └── Type.kt            # Typography definitions
-        │   └── res/                           # Android resources
-        │       ├── drawable/                  # Vector drawables and launcher backgrounds
-        │       ├── mipmap-*/                  # App launcher webp icons
-        │       ├── values/                    # strings.xml, colors.xml, themes.xml
-        │       └── xml/                       # backup_rules.xml, data_extraction_rules.xml
-        ├── test/                              # Local JVM unit tests
-        │   └── java/app/kiddos/codeeditor/
-        │       ├── EditorLogicTest.kt         # Comprehensive tests: syntax, search/replace, encodings
-        │       └── ExampleUnitTest.kt         # Baseline unit test
-        └── androidTest/                       # Instrumented Android tests
-            └── java/app/kiddos/codeeditor/
-                └── ExampleInstrumentedTest.kt # Context-based instrumentation test
+app/src/
+├── main/
+│   ├── AndroidManifest.xml # Application manifest, activity declarations, app theme
+│   ├── java/app/kiddos/codeeditor/
+│   │   ├── MainActivity.kt # Main entry Activity with edge-to-edge Compose host
+│   │   ├── data/           # Domain models, enums, and data helpers
+│   │   │   ├── EditorTab.kt           # Immutable tab state (URI, text, language, undo/redo)
+│   │   │   ├── EditorTheme.kt         # Theme definitions and color palettes
+│   │   │   ├── EncodingHelper.kt      # Charset detection, UTF-8 BOM, encoding conversions
+│   │   │   ├── ProgrammingLanguage.kt  # Supported languages, badge labels, and file extensions
+│   │   │   └── SampleCodes.kt         # Pre-loaded starter code templates
+│   │   ├── search/         # Text search and replace engine
+│   │   │   └── SearchState.kt         # Search query state, regex matching, match navigation, replace
+│   │   ├── syntax/         # Syntax highlighting engine
+│   │   │   ├── LanguageRules.kt       # Keywords and built-in type sets for supported languages
+│   │   │   └── SyntaxHighlighter.kt   # Regex token scanner & Compose CodeVisualTransformation
+│   │   └── ui/             # Jetpack Compose UI layer
+│   │       ├── EditorViewModel.kt     # Main ViewModel: tabs, undo/redo, file I/O, search state
+│   │       ├── MainScreen.kt          # Root Compose scaffold, top bar, SAF launchers, dialog triggers
+│   │       ├── components/            # Reusable UI components
+│   │       │   ├── CodeEditorView.kt  # Editor viewport with line number gutter & visual transformation
+│   │       │   ├── Dialogs.kt         # Theme, encoding, language, and new file dialogs
+│   │       │   ├── QuickSymbolBar.kt  # Quick character insertion row for programming symbols
+│   │       │   ├── SearchBar.kt       # Floating search and replace bar with match controls
+│   │       │   ├── StatusBar.kt       # Bottom status bar: line/col, length, encoding, language, theme
+│   │       │   └── TabBar.kt          # Multi-tab strip with selection, close, and add actions
+│   │       └── theme/                 # App-wide Material 3 theme styling
+│   │           ├── Color.kt           # Baseline palette tokens
+│   │           ├── Theme.kt           # Dynamic / dark / light MaterialTheme configuration
+│   │           └── Type.kt            # Typography definitions
+│   └── res/                           # Android resources
+│       ├── drawable/                  # Vector drawables and launcher backgrounds
+│       ├── mipmap-*/                  # App launcher webp icons
+│       ├── values/                    # strings.xml, colors.xml, themes.xml
+│       └── xml/                       # backup_rules.xml, data_extraction_rules.xml
+├── test/                              # Local JVM unit tests
+│   └── java/app/kiddos/codeeditor/
+│       ├── EditorLogicTest.kt         # Comprehensive tests: syntax, search/replace, encodings
+│       └── ExampleUnitTest.kt         # Baseline unit test
+└── androidTest/                       # Instrumented Android tests
+    └── java/app/kiddos/codeeditor/
+        └── ExampleInstrumentedTest.kt # Context-based instrumentation test
 ```
-
----
 
 ## 2. Environment & Build Commands
 
-The project is built with **Gradle** using the Kotlin DSL (`.gradle.kts`) and the Gradle Version Catalog (`gradle/libs.versions.toml`).
+The project uses Gradle with the Kotlin DSL (`.gradle.kts`) and a version catalog (`gradle/libs.versions.toml`).
 
-### Toolchain Requirements
-- **JDK Requirement**: **JDK 17** (AGP 9.1+ requires minimum Java 17; foojay toolchain resolver convention is enabled in `settings.gradle.kts`).
-- **Kotlin Version**: `2.2.10`
-- **Compose Compiler**: Kotlin Compose Plugin (`org.jetbrains.kotlin.plugin.compose`)
-- **Android Gradle Plugin (AGP)**: `9.1.1`
-- **Compile SDK**: `36` (release 36, minorApiLevel 1)
-- **Target SDK**: `36`
-- **Min SDK**: `28`
-- **Source / Target Compatibility**: `JavaVersion.VERSION_11`
+*   **Required JDK Version:** JDK 17 (foojay toolchain resolver convention is enabled in `settings.gradle.kts`).
+*   **JVM Target (Source/Target Compatibility):** Java 11 (JavaVersion.VERSION_11).
+*   **Android SDK:** Compile SDK 36, Target SDK 36, Min SDK 28.
+*   **Kotlin Version:** 2.2.10.
+*   **Android Gradle Plugin (AGP):** 9.1.1.
 
-### Build Commands
-Always run Gradle commands through the wrapper script (`./gradlew` on Linux/macOS or `gradlew.bat` on Windows).
+### Gradle Commands
 
-```bash
-# Build debug APK
-./gradlew assembleDebug
+Run all Gradle commands through the wrapper (`./gradlew` on Linux/macOS or `gradlew.bat` on Windows).
 
-# Build release APK
-./gradlew assembleRelease
-
-# Clean build artifacts
-./gradlew clean
-
-# Full build (compilation and checks)
-./gradlew build
-```
-Debug APK output location: `app/build/outputs/apk/debug/app-debug.apk`
-
----
+*   **Build Debug APK:** `./gradlew assembleDebug`
+*   **Build Release APK:** `./gradlew assembleRelease`
+*   **Clean Build Artifacts:** `./gradlew clean`
+*   **Full Build (compilation and checks):** `./gradlew build`
 
 ## 3. Testing & Verification Workflow
 
 ### Unit Tests (JVM)
-Fast unit tests run directly on the host machine using JUnit 4.
-```bash
-# Run all unit tests
-./gradlew testDebugUnitTest
+The project uses **JUnit 4** for fast unit tests that run directly on the host machine.
+*   **Run all unit tests:** `./gradlew testDebugUnitTest`
+*   **Run a specific test class:** `./gradlew testDebugUnitTest --tests "app.kiddos.codeeditor.EditorLogicTest"`
+*   **Run a specific test method:** `./gradlew testDebugUnitTest --tests "app.kiddos.codeeditor.EditorLogicTest.testSearchNavigation"`
 
-# Run a specific test class
-./gradlew testDebugUnitTest --tests "app.kiddos.codeeditor.EditorLogicTest"
-
-# Run a specific test method
-./gradlew testDebugUnitTest --tests "app.kiddos.codeeditor.EditorLogicTest.testSearchNavigation"
-```
-Unit test reports are written to:
-- HTML Report: `app/build/reports/tests/testDebugUnitTest/index.html`
-- JUnit XML: `app/build/test-results/testDebugUnitTest/TEST-*.xml`
+*(Agents can and should run JVM unit tests directly.)*
 
 ### Instrumented Tests (Android)
-Tests requiring an active Android emulator or physical device, utilizing JUnit 4 and Espresso.
-```bash
-# Run instrumented tests on connected device/emulator
-./gradlew connectedDebugAndroidTest
-```
-*(Note: Agents can run JVM unit tests directly, but instrumented tests require a connected device/emulator.)*
+The project uses **JUnit 4** and **Espresso** for instrumented tests requiring an active Android emulator or physical device.
+*   **Run instrumented tests:** `./gradlew connectedDebugAndroidTest`
 
-### Lint & Static Analysis
-Currently configured for Android Lint.
-```bash
-# Run Android lint on debug variant
-./gradlew lintDebug
+*(Note: Instrumented tests require a connected device/emulator.)*
 
-# Run lint on all variants
-./gradlew lint
-```
+### Static Analysis, Linting & Formatting
+The project uses the standard **Android Lint**.
+*   **Run Android lint on debug variant:** `./gradlew lintDebug`
+*   **Run lint on all variants:** `./gradlew lint`
 
----
+*(There are currently no additional formatters like ktlint, detekt, or Spotless configured, so rely on standard Kotlin coding conventions `kotlin.code.style=official` in `gradle.properties`.)*
 
 ## 4. Kotlin & Android Coding Conventions
 
 ### UI Layer
-- **Jetpack Compose**: Use for all UI components. Avoid traditional XML Views.
-- **Material 3**: Use Material 3 themes and components.
-- **State Hoisting**: Pass state in and propagate events out using lambda callbacks (e.g., `onTabSelected: (Int) -> Unit`).
-- **Modifier Parameter**: Every public `@Composable` accepting layout properties should accept `modifier: Modifier = Modifier` as a parameter and apply it to its root element.
-- **VisualTransformation**: Used for non-destructive syntax highlighting (e.g., `CodeVisualTransformation`).
-- **Remembering Computations**: Wrap expensive calculations (such as line counts or regex operations) in `remember(keys) { ... }`.
+*   **Jetpack Compose:** Use Jetpack Compose for all UI components. Avoid traditional XML Views.
+*   **Material 3:** Use Material 3 themes and components.
+*   **State Hoisting:** Pass state down to composables and propagate events up using lambda callbacks (e.g., `onTabSelected: (Int) -> Unit`).
+*   **Modifiers:** Every public `@Composable` accepting layout properties should accept `modifier: Modifier = Modifier` as a parameter and apply it to its root element.
+*   **VisualTransformation:** Used for non-destructive syntax highlighting (e.g., `CodeVisualTransformation`).
+*   **Remembering Computations**: Wrap expensive calculations (such as line counts or regex operations) in `remember(keys) { ... }`.
 
 ### Concurrency & State
-- **Kotlin Coroutines**: Preferred method for asynchronous tasks.
-- **State Management**: Use `StateFlow` (or `SharedFlow` for events) within ViewModels.
+*   **Coroutines:** Use Kotlin Coroutines for asynchronous tasks.
+*   **Dispatcher Injection:** Dispatchers should be injected into ViewModels or repositories to facilitate testing, rather than hardcoding `Dispatchers.IO` or `Dispatchers.Default`.
+*   **State Management:** Use `StateFlow` (for state) and `SharedFlow` (for one-off events) within ViewModels.
+*   **Lifecycle-aware collection:** When collecting flows in Compose, use `collectAsStateWithLifecycle()` to ensure proper lifecycle handling and prevent resource leaks.
 
 ### Dependency Injection & Libraries
-- **Adding Dependencies**: All new dependencies must be declared in `gradle/libs.versions.toml` first.
-- **Dependency Injection**: Manual dependency injection is currently used. Hilt or Koin are not configured.
+*   **Dependency Injection:** The project currently uses manual dependency injection. Do not add Hilt or Koin unless explicitly requested.
+*   **Adding Dependencies:** All new dependencies must be declared in the version catalog first (`gradle/libs.versions.toml`).
 
-### Language & Formatting
-- **Code Style**: Strictly follow official Kotlin coding conventions (`kotlin.code.style=official` in `gradle.properties`).
-- **Naming Conventions**:
-  - `PascalCase`: Classes, interfaces, objects, and `@Composable` functions (e.g., `EditorViewModel`, `CodeEditorView`, `SearchState`).
-  - `camelCase`: Functions, properties, local variables, and method parameters (e.g., `activeTabIndex`, `toggleCaseSensitive()`).
-  - `UPPER_SNAKE_CASE`: Enum constants (e.g., `ProgrammingLanguage.CPP`, `ProgrammingLanguage.PLAIN_TEXT`).
-  - Constants in companion objects: `PascalCase` or `camelCase` depending on object vs value semantics (e.g., `EditorTheme.OneDark`).
+### Naming Conventions
+*   `PascalCase`: Classes, interfaces, objects, and `@Composable` functions (e.g., `EditorViewModel`, `CodeEditorView`, `SearchState`).
+*   `camelCase`: Functions, properties, local variables, and method parameters (e.g., `activeTabIndex`, `toggleCaseSensitive()`).
+*   `UPPER_SNAKE_CASE`: Enum constants (e.g., `ProgrammingLanguage.CPP`, `ProgrammingLanguage.PLAIN_TEXT`).
+*   Constants in companion objects: `PascalCase` or `camelCase` depending on object vs value semantics (e.g., `EditorTheme.OneDark`).
 
 ### File Handling & Storage
-- Use Android's Storage Access Framework (SAF) with `rememberLauncherForActivityResult` and `ActivityResultContracts.OpenMultipleDocuments` / `ActivityResultContracts.CreateDocument`.
-- Do not use broad storage permissions. Use standard Android ContentResolver streams to handle I/O.
-- Always use `context.contentResolver.openInputStream(uri)?.use { ... }` and `openOutputStream(uri)?.use { ... }` to guarantee stream closure.
-
-### Error Handling & User Feedback
-- Guard against invalid user input (e.g., invalid regex queries in `SearchState` or unsupported charsets in `EncodingHelper`) using safe `try-catch` blocks and sensible fallbacks.
-- Communicate asynchronous or I/O results (file opened, file saved, encoding switched, errors) via `EditorUiState.messageSnackbar` displayed by `SnackbarHost`.
-
----
+*   **File I/O:** Use Android's Storage Access Framework (SAF) (`ActivityResultContracts.OpenMultipleDocuments`, `ActivityResultContracts.CreateDocument`). Do not use broad storage permissions (`MANAGE_EXTERNAL_STORAGE`).
+*   **Streams:** Always close streams using `use { ... }` blocks (e.g., `context.contentResolver.openInputStream(uri)?.use { ... }`).
+*   **Error Handling:** Use safe `try-catch` blocks for invalid input (e.g. regex or charsets) and communicate asynchronous/IO results to the user via the `SnackbarHost` (e.g., `EditorUiState.messageSnackbar`).
 
 ## 5. Agent Guardrails (Do's and Don'ts)
 
-- **Do Not Modify Generated Files**: Never manually edit files in `build/` or other automatically generated paths. Trace issues to their source files.
-- **Run Checks Before Finalizing**: Always run the relevant unit tests (`./gradlew testDebugUnitTest`) and linter tasks (`./gradlew lintDebug`) before finalizing a task.
-- **Code Style**: Strictly adhere to the official Kotlin coding style. Avoid generic advice; keep instructions imperative and concrete.
-- **Resources**: Handle string resources and assets properly via standard Android `res/` patterns without requiring extra permissions.
+*   **DO NOT manually edit generated files:** Never manually edit files in `build/`, Room schemas, Dagger/Hilt generated code, or other automatically generated paths. Trace issues to their source files and modify those instead.
+*   **ALWAYS verify work:** Always run the relevant unit tests (`./gradlew testDebugUnitTest`) and linter tasks (`./gradlew lintDebug`) before finalizing a task to ensure no regressions were introduced.
+*   **DO handle resources properly:** Use standard Android `res/` patterns for string resources, drawables, and assets. Do not hardcode strings in Compose files without verifying if they should be extracted to `strings.xml`.
+*   **Database Migrations:** If Room is introduced in the future, database schema changes must be accompanied by explicit database migration scripts, and schemas should be exported and verified via tests.
 
 ### Adding New Features
 When tasked with adding new features, agents and developers must follow these specific steps:
 
 1. **New Language Support**:
-   - Add the enum entry in `ProgrammingLanguage.kt` with appropriate file extensions and short badge string.
-   - Define keyword and type sets in `LanguageRules.kt`.
-   - Update `SyntaxHighlighter.kt` if the language introduces unique comment or string syntaxes (e.g., custom multiline string formats).
-   - Add test coverage in `EditorLogicTest.kt`.
+   * Add the enum entry in `ProgrammingLanguage.kt` with appropriate file extensions and short badge string.
+   * Define keyword and type sets in `LanguageRules.kt`.
+   * Update `SyntaxHighlighter.kt` if the language introduces unique comment or string syntaxes (e.g., custom multiline string formats).
+   * Add test coverage in `EditorLogicTest.kt`.
 2. **New Themes**:
-   - Add a new `EditorTheme` constant in `EditorTheme.Companion` in `EditorTheme.kt`.
-   - Add the new theme instance to `EditorTheme.allThemes`.
-   - Add verification to `EditorLogicTest.testThemeCollection()`.
+   * Add a new `EditorTheme` constant in `EditorTheme.Companion` in `EditorTheme.kt`.
+   * Add the new theme instance to `EditorTheme.allThemes`.
+   * Add verification to `EditorLogicTest.testThemeCollection()`.
 3. **Tests**:
-   - Whenever modifying search, syntax parsing, or encoding logic, run `./gradlew testDebugUnitTest` to verify test suite health.
+   * Whenever modifying search, syntax parsing, or encoding logic, run `./gradlew testDebugUnitTest` to verify test suite health.
